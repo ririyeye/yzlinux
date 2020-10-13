@@ -31,7 +31,7 @@
 #include <linux/v4l2-mediabus.h>
 #include <media/v4l2-device.h>
 #include <media/v4l2-ctrls.h>
-
+#include "ov2640.h"
 #define OV5640_VOLTAGE_ANALOG               2800000
 #define OV5640_VOLTAGE_DIGITAL_CORE         1500000
 #define OV5640_VOLTAGE_DIGITAL_IO           1800000
@@ -1743,6 +1743,86 @@ static struct v4l2_subdev_ops ov5640_subdev_ops = {
 	.pad	= &ov5640_subdev_pad_ops,
 };
 
+static int ov2640_write_array(struct i2c_client *client,
+	const struct regval_list *vals)
+{
+	int ret;
+
+	while ((vals->reg_num != 0xff) || (vals->value != 0xff)) {
+		ret = i2c_smbus_write_byte_data(client,
+			vals->reg_num, vals->value);
+		dev_vdbg(&client->dev, "array: 0x%02x, 0x%02x",
+			vals->reg_num, vals->value);
+
+		if (ret < 0)
+			return ret;
+		vals++;
+	}
+	return 0;
+}
+
+static int ov2640_mask_set(struct i2c_client *client,
+	u8  reg, u8  mask, u8  set)
+{
+	s32 val = i2c_smbus_read_byte_data(client, reg);
+	if (val < 0)
+		return val;
+
+	val &= ~mask;
+	val |= set & mask;
+
+	dev_vdbg(&client->dev, "masks: 0x%02x, 0x%02x", reg, val);
+
+	return i2c_smbus_write_byte_data(client, reg, val);
+}
+
+
+static int ov2640initREG(struct i2c_client *pi2c)
+{
+	u16 reg;
+	u8 val;
+
+	u8 pid, ver, midh, midl;
+	u8 ret;
+	const char *devname;
+	i2c_smbus_write_byte_data(pi2c, BANK_SEL, BANK_SEL_SENS);
+	pid = i2c_smbus_read_byte_data(pi2c, PID);
+	ver = i2c_smbus_read_byte_data(pi2c, VER);
+	midh = i2c_smbus_read_byte_data(pi2c, MIDH);
+	midl = i2c_smbus_read_byte_data(pi2c, MIDL);
+
+	switch (VERSION(pid, ver)) {
+	case PID_OV2640:
+		devname = "ov2640";
+		break;
+	default:
+		dev_err(&pi2c->dev,
+			"Product ID error %x:%x\n", pid, ver);
+		ret = -ENODEV;
+		return ret;
+	}
+
+	dev_info(&pi2c->dev,
+		"%s Product ID %0x:%0x Manufacturer ID %x:%x\n",
+		devname, pid, ver, midh, midl);
+
+	ov2640_write_array(pi2c, ov2640_init_regs);
+	ov2640_write_array(pi2c, ov2640_size_change_preamble_regs);
+	//ov2640_write_array(save_client, ov2640_vga_regs);
+	ov2640_write_array(pi2c, ov2640_uxga_regs);
+	ov2640_write_array(pi2c, ov2640_format_change_preamble_regs);
+	ov2640_write_array(pi2c, ov2640_yuyv_regs);
+
+	//val = (code == MEDIA_BUS_FMT_YVYU8_2X8)
+	//	|| (code == MEDIA_BUS_FMT_VYUY8_2X8) ? CTRL0_VFIRST : 0x00;
+	val = 0 ? CTRL0_VFIRST : 0x00;
+
+	reg = ov2640_mask_set(pi2c, CTRL0, CTRL0_VFIRST, val);
+
+	return 0;
+}
+
+
 /*!
  * ov5640 I2C probe function
  *
@@ -1824,8 +1904,8 @@ static int ov5640_probe(struct i2c_client *client,
 	ov5640_data.io_init = ov5640_reset;
 	ov5640_data.i2c_client = client;
 	ov5640_data.pix.pixelformat = V4L2_PIX_FMT_YUYV;
-	ov5640_data.pix.width = 640;
-	ov5640_data.pix.height = 480;
+	ov5640_data.pix.width = WIDTH_INIT;
+	ov5640_data.pix.height = HEIGTH_INIT;
 	ov5640_data.streamcap.capability = V4L2_MODE_HIGHQUALITY |
 					   V4L2_CAP_TIMEPERFRAME;
 	ov5640_data.streamcap.capturemode = 0;
@@ -1838,6 +1918,14 @@ static int ov5640_probe(struct i2c_client *client,
 
 	ov5640_power_down(0);
 
+	retval = ov2640initREG(ov5640_data.i2c_client);
+
+	if (retval == 0) {
+		pr_warning("ov2640 pre init ok\n");
+	} else {
+		pr_warning("ov2640 pre init fail = %d\n", retval);
+	}
+#if 0
 	retval = ov5640_read_reg(OV5640_CHIP_ID_HIGH_BYTE, &chip_id_high);
 	if (retval < 0 || chip_id_high != 0x56) {
 		clk_disable_unprepare(ov5640_data.sensor_clk);
@@ -1858,7 +1946,7 @@ static int ov5640_probe(struct i2c_client *client,
 		ov5640_power_down(1);
 		return retval;
 	}
-
+#endif
 	clk_disable(ov5640_data.sensor_clk);
 
 	v4l2_i2c_subdev_init(&ov5640_data.subdev, client, &ov5640_subdev_ops);
