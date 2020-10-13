@@ -15,8 +15,9 @@ ov5640_camera_int-objs := ov5640.o
 obj-$(CONFIG_MXC_CAMERA_OV5640) += ov5640_camera_int.o
 
 # Used for iMX 6UL/ULL/SX/SL/SLL
-ov5640_camera_v2-objs := ov5640_v2.o
-obj-$(CONFIG_MXC_CAMERA_OV5640_V2) += ov5640_camera_v2.o
+#ov5640_camera_v2-objs := ov5640_v2.o
+#obj-$(CONFIG_MXC_CAMERA_OV5640_V2) += ov5640_camera_v2.o
+ov2640_camera_v2-objs := ov2640_v2.o
 obj-$(CONFIG_MXC_CAMERA_OV5640_V2) += ov2640_camera_v2.o
 
 ov5642_camera-objs := ov5642.o
