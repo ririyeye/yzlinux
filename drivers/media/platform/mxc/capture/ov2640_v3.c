@@ -30,6 +30,9 @@
 #include <media/v4l2-ctrls.h>
 #include <media/v4l2-image-sizes.h>
 
+#include <linux/pinctrl/consumer.h>
+#include <linux/regulator/consumer.h>
+
 #define VAL_SET(x, mask, rshift, lshift)  \
 		((((x) >> rshift) & mask) << lshift)
 /*
@@ -39,6 +42,13 @@
 #define R_BYPASS    0x05 /* Bypass DSP */
 #define   R_BYPASS_DSP_BYPAS    0x01 /* Bypass DSP, sensor out directly */
 #define   R_BYPASS_USE_DSP      0x00 /* Use the internal DSP */
+#define OV5640_XCLK_MIN 6000000
+#define OV5640_XCLK_MAX 24000000
+#define OV5640_VOLTAGE_ANALOG               2800000
+#define OV5640_VOLTAGE_DIGITAL_CORE         1500000
+#define OV5640_VOLTAGE_DIGITAL_IO           1800000
+
+
 #define QS          0x44 /* Quantization Scale Factor */
 #define CTRLI       0x50
 #define   CTRLI_LP_DP           0x80
@@ -303,7 +313,7 @@ struct ov2640_priv {
 	struct v4l2_ctrl_handler	hdl;
 	u32	cfmt_code;
 	struct clk			*clk;
-	const struct ov2640_win_size	*win;
+	const struct ov2640_win_size *win;
 
 	struct gpio_desc *resetb_gpio;
 	struct gpio_desc *pwdn_gpio;
@@ -311,6 +321,15 @@ struct ov2640_priv {
 	struct mutex lock; /* lock to protect streaming and power_count */
 	bool streaming;
 	int power_count;
+
+    struct regulator *io_regulator;
+    struct regulator *core_regulator;
+    struct regulator *analog_regulator;
+
+
+    int csi;
+    u32 mclk;
+    u8 mclk_source;
 };
 
 /*
@@ -597,14 +616,14 @@ static const struct regval_list ov2640_format_change_preamble_regs[] = {
 	{ R_BYPASS, R_BYPASS_USE_DSP },
 	ENDMARKER,
 };
-
+static inline void ov2640_reset(struct ov2640_priv *priv);
 static const struct regval_list ov2640_yuyv_regs[] = {
 	{ IMAGE_MODE, IMAGE_MODE_YUV422 },
 	{ 0xd7, 0x03 },
 	{ 0x33, 0xa0 },
 	{ 0xe5, 0x1f },
 	{ 0xe1, 0x67 },
-	{ RESET,  0x00 },
+	{ RESET, 0x00 },
 	{ R_BYPASS, R_BYPASS_USE_DSP },
 	ENDMARKER,
 };
@@ -686,7 +705,7 @@ static int ov2640_mask_set(struct i2c_client *client,
 	return i2c_smbus_write_byte_data(client, reg, val);
 }
 
-static int ov2640_reset(struct i2c_client *client)
+static int ov2640_soft_reset(struct i2c_client *client)
 {
 	int ret;
 	static const struct regval_list reset_seq[] = {
@@ -782,12 +801,12 @@ static void ov2640_set_power(struct ov2640_priv *priv, int on)
 {
 #ifdef CONFIG_GPIOLIB
 	if (priv->pwdn_gpio)
-		gpiod_direction_output(priv->pwdn_gpio, !on);
+	gpiod_direction_output(priv->pwdn_gpio, on);
 	if (on && priv->resetb_gpio) {
 		/* Active the resetb pin to perform a reset pulse */
-		gpiod_direction_output(priv->resetb_gpio, 1);
+		gpiod_direction_output(priv->resetb_gpio, 0);
 		usleep_range(3000, 5000);
-		gpiod_set_value(priv->resetb_gpio, 0);
+		gpiod_set_value(priv->resetb_gpio, 1);
 	}
 #endif
 }
@@ -865,7 +884,7 @@ static int ov2640_set_params(struct i2c_client *client,
 	}
 
 	/* reset hardware */
-	ov2640_reset(client);
+	ov2640_soft_reset(client);
 
 	/* initialize the sensor with default data */
 	dev_dbg(&client->dev, "%s: Init default", __func__);
@@ -904,7 +923,7 @@ static int ov2640_set_params(struct i2c_client *client,
 
 err:
 	dev_err(&client->dev, "%s: Error %d", __func__, ret);
-	ov2640_reset(client);
+	ov2640_soft_reset(client);
 
 	return ret;
 }
@@ -1043,7 +1062,7 @@ static int ov2640_s_stream(struct v4l2_subdev *sd, int on)
 
 	return ret;
 }
-
+static inline void ov2640_power_down(struct ov2640_priv *priv, int enable);
 static int ov2640_video_probe(struct i2c_client *client)
 {
 	struct ov2640_priv *priv = to_ov2640(client);
@@ -1113,10 +1132,118 @@ static const struct v4l2_subdev_ops ov2640_subdev_ops = {
 	.video	= &ov2640_subdev_video_ops,
 };
 
+static int ov2640_set_clk_rate(struct ov2640_priv * priv)
+{
+	u32 tgt_xclk;	/* target xclk */
+	int ret;
+
+	/* mclk */
+	tgt_xclk = priv->mclk;
+	tgt_xclk = min(tgt_xclk, (u32)OV5640_XCLK_MAX);
+	tgt_xclk = max(tgt_xclk, (u32)OV5640_XCLK_MIN);
+	priv->mclk = tgt_xclk;
+
+	pr_debug("   Setting mclk to %d MHz\n", tgt_xclk / 1000000);
+	ret = clk_set_rate(priv->clk, priv->mclk);
+	if (ret < 0)
+		pr_debug("set rate filed, rate=%d\n", priv->mclk);
+	return ret;
+}
+
+static int ov2640_regulator_enable(struct device *dev,struct ov2640_priv * priv)
+{
+	int ret = 0;
+
+	priv->io_regulator = devm_regulator_get(dev, "DOVDD");
+	if (!IS_ERR(priv->io_regulator)) {
+		regulator_set_voltage(priv->io_regulator,
+				      OV5640_VOLTAGE_DIGITAL_IO,
+				      OV5640_VOLTAGE_DIGITAL_IO);
+		ret = regulator_enable(priv->io_regulator);
+		if (ret) {
+			dev_err(dev, "set io voltage failed\n");
+			return ret;
+		} else {
+			dev_dbg(dev, "set io voltage ok\n");
+		}
+	} else {
+		priv->io_regulator = NULL;
+		dev_warn(dev, "cannot get io voltage\n");
+	}
+
+	priv->core_regulator = devm_regulator_get(dev, "DVDD");
+	if (!IS_ERR(priv->core_regulator)) {
+		regulator_set_voltage(priv->core_regulator,
+				      OV5640_VOLTAGE_DIGITAL_CORE,
+				      OV5640_VOLTAGE_DIGITAL_CORE);
+		ret = regulator_enable(priv->core_regulator);
+		if (ret) {
+			dev_err(dev, "set core voltage failed\n");
+			return ret;
+		} else {
+			dev_dbg(dev, "set core voltage ok\n");
+		}
+	} else {
+		priv->core_regulator = NULL;
+		dev_warn(dev, "cannot get core voltage\n");
+	}
+
+	priv->analog_regulator = devm_regulator_get(dev, "AVDD");
+	if (!IS_ERR(priv->analog_regulator)) {
+		regulator_set_voltage(priv->analog_regulator,
+				      OV5640_VOLTAGE_ANALOG,
+				      OV5640_VOLTAGE_ANALOG);
+		ret = regulator_enable(priv->analog_regulator);
+		if (ret) {
+			dev_err(dev, "set analog voltage failed\n");
+			return ret;
+		} else {
+			dev_dbg(dev, "set analog voltage ok\n");
+		}
+	} else {
+		priv->analog_regulator = NULL;
+		dev_warn(dev, "cannot get analog voltage\n");
+	}
+
+	return ret;
+}
+
+static inline void ov2640_reset(struct ov2640_priv * priv)
+{
+	/* camera reset */
+	gpiod_set_value_cansleep(priv->resetb_gpio, 1);
+
+	/* camera power down */
+	gpiod_set_value_cansleep(priv->pwdn_gpio, 1);
+	msleep(5);
+	gpiod_set_value_cansleep(priv->pwdn_gpio, 0);
+	msleep(5);
+	gpiod_set_value_cansleep(priv->resetb_gpio, 0);
+	msleep(1);
+	gpiod_set_value_cansleep(priv->resetb_gpio, 1);
+	msleep(5);
+	gpiod_set_value_cansleep(priv->pwdn_gpio, 1);
+}
+
+static inline void ov2640_power_down(struct ov2640_priv * priv, int enable)
+{
+	gpiod_set_value_cansleep(priv->pwdn_gpio, enable);
+
+	msleep(2);
+}
+
 static int ov2640_probe_dt(struct i2c_client *client,
 		struct ov2640_priv *priv)
 {
 	int ret;
+    struct pinctrl *pinctrl;
+    struct device *dev = &client->dev;
+
+    pinctrl = devm_pinctrl_get_select_default(dev);
+	if (IS_ERR(pinctrl)) {
+		dev_err(&client->dev, "setup pinctrl failed\n");
+		return PTR_ERR(pinctrl);
+	}
 
 	/* Request the reset GPIO deasserted */
 	priv->resetb_gpio = devm_gpiod_get_optional(&client->dev, "resetb",
@@ -1133,18 +1260,54 @@ static int ov2640_probe_dt(struct i2c_client *client,
 	}
 
 	/* Request the power down GPIO asserted */
-	priv->pwdn_gpio = devm_gpiod_get_optional(&client->dev, "pwdn",
+	priv->pwdn_gpio = devm_gpiod_get_optional(dev, "pwdn",
 			GPIOD_OUT_HIGH);
 
 	if (!priv->pwdn_gpio)
-		dev_dbg(&client->dev, "pwdn gpio is not assigned!\n");
+		dev_dbg(dev, "pwdn gpio is not assigned!\n");
 
 	ret = PTR_ERR_OR_ZERO(priv->pwdn_gpio);
 	if (ret && ret != -ENOSYS) {
-		dev_dbg(&client->dev,
+		dev_dbg(dev,
 			"Error %d while getting pwdn gpio\n", ret);
 		return ret;
 	}
+
+    priv->clk = devm_clk_get(dev, "csi_mclk");
+	if (IS_ERR(priv->clk)) {
+		dev_err(dev, "get mclk failed\n");
+		return PTR_ERR(priv->clk);
+	}
+
+    ret = of_property_read_u32(dev->of_node, "mclk",&priv->mclk);
+	if (ret) {
+		dev_err(dev, "mclk frequency is invalid\n");
+		return ret;
+	}
+
+	ret = of_property_read_u32(dev->of_node, "mclk_source",
+					(u32 *) &(priv->mclk_source));
+	if (ret) {
+		dev_err(dev, "mclk_source invalid\n");
+		return ret;
+	}
+
+	ret = of_property_read_u32(dev->of_node, "csi_id",
+					&(priv->csi));
+	if (ret) {
+		dev_err(dev, "csi_id invalid\n");
+		return ret;
+	}
+
+	ov2640_set_clk_rate(priv);
+
+	clk_prepare_enable(priv->clk);
+
+	ov2640_regulator_enable(dev, priv);
+
+    ov2640_reset(priv);
+
+	ov2640_power_down(priv,0);
 
 	return 0;
 }
@@ -1168,7 +1331,7 @@ static int ov2640_probe(struct i2c_client *client,
 	priv = devm_kzalloc(&client->dev, sizeof(*priv), GFP_KERNEL);
 	if (!priv)
 		return -ENOMEM;
-
+#if 0
 	if (client->dev.of_node) {
 		priv->clk = devm_clk_get(&client->dev, "xvclk");
 		if (IS_ERR(priv->clk))
@@ -1177,7 +1340,7 @@ static int ov2640_probe(struct i2c_client *client,
 		if (ret)
 			return ret;
 	}
-
+#endif
 	ret = ov2640_probe_dt(client, priv);
 	if (ret)
 		goto err_clk;

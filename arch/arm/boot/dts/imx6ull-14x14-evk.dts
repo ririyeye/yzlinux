@@ -391,14 +391,38 @@
                 goodix,irq-gpio = <&gpio1 9  GPIO_ACTIVE_LOW>;
         };
 
-	ov5640: ov5640@3c {
-		compatible = "ovti,ov5640";
+	ov2640: ov2640@3c {
+		compatible = "ovti,ov2640";
 		reg = <0x30>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&pinctrl_csi1>;
 		clocks = <&clks IMX6UL_CLK_CSI>;
 		clock-names = "csi_mclk";
-		/* reference imx6qdl-icore.dtsi */
+		DOVDD-supply = <&reg_3p3v>;
+		VDD-supply = <&reg_1p8v>;
+        AVDD-supply = <&reg_3p3v>;
+        DVDD-supply = <&reg_3p3v>;
+		pwdn-gpios = <&gpio1 4 1>;
+        resetb-gpios = <&gpio1 2 0>;
+		csi_id = <0>;
+		mclk = <24000000>;
+		mclk_source = <0>;
+		status = "okay";
+		port {
+			ov5640_ep: endpoint {
+				remote-endpoint = <&csi1_ep>;
+			};
+		};
+	};
+
+/*
+	ov5640: ov5640@3c {
+		compatible = "ovti,ov5640";
+		reg = <0x3c>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_csi1>;
+		clocks = <&clks IMX6UL_CLK_CSI>;
+		clock-names = "csi_mclk";
 		DOVDD-supply = <&reg_3p3v>;
 		VDD-supply = <&reg_1p8v>;
                 AVDD-supply = <&reg_3p3v>;
@@ -415,7 +439,7 @@
 			};
 		};
 	};
-
+*/
         sii902x: sii902x@39 {
                 compatible = "SiI,sii902x";
                 pinctrl-names = "default";
