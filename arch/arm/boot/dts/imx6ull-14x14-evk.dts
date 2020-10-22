@@ -652,8 +652,6 @@
 		fsl,pins = <
 			MX6UL_PAD_UART2_TX_DATA__UART2_DCE_TX	0x1b0b1
 			MX6UL_PAD_UART2_RX_DATA__UART2_DCE_RX	0x1b0b1
-			MX6UL_PAD_UART3_RX_DATA__UART2_DCE_RTS	0x1b0b1
-			MX6UL_PAD_UART3_TX_DATA__UART2_DCE_CTS	0x1b0b1
 		>;
 	};
 
@@ -892,11 +890,7 @@
 &uart2 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_uart2>;
-	fsl,uart-has-rtscts;
-	/* for DTE mode, add below change */
-	/* fsl,dte-mode; */
-	/* pinctrl-0 = <&pinctrl_uart2dte>; */
-	status = "disabled";
+	status = "okay";
 };
 
 &uart3 {
