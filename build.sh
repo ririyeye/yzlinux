@@ -13,6 +13,6 @@ cat arch/arm/boot/dts/imx6ull-14x14-emmc-7-1024x600-c.dtb >> arch/arm/boot/zImag
 cp arch/arm/boot/dts/imx6ull-14x14-emmc-7-1024x600-c.dtb /tftp/imx6ull-14x14-emmc-4.3-480x272-c.dtb
 
 cp arch/arm/boot/zImage /tftp
-
+cp /tftp/* /a53root
 
 
