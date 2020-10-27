@@ -1080,10 +1080,8 @@
 				clocks = <&clks IMX6UL_CLK_UART2_IPG>,
 					 <&clks IMX6UL_CLK_UART2_SERIAL>;
 				clock-names = "ipg", "per";
-				/*
 				dmas = <&sdma 27 4 0>, <&sdma 28 4 0>;
 				dma-names = "rx", "tx";
-				*/
 				status = "disabled";
 			};
 
@@ -1095,10 +1093,8 @@
 				clocks = <&clks IMX6UL_CLK_UART3_IPG>,
 					 <&clks IMX6UL_CLK_UART3_SERIAL>;
 				clock-names = "ipg", "per";
-				/*
 				dmas = <&sdma 29 4 0>, <&sdma 30 4 0>;
 				dma-names = "rx", "tx";
-				*/
 				status = "disabled";
 			};
 
