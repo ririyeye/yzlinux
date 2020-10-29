@@ -589,41 +589,41 @@ static struct regulator *io_regulator;
 static struct regulator *core_regulator;
 static struct regulator *analog_regulator;
 
-static int ov5640_probe(struct i2c_client *adapter,
+static int ov2640_probe(struct i2c_client *adapter,
 				const struct i2c_device_id *device_id);
-static int ov5640_remove(struct i2c_client *client);
+static int ov2640_remove(struct i2c_client *client);
 
 static s32 ov5640_read_reg(u16 reg, u8 *val);
 static s32 ov5640_write_reg(u16 reg, u8 val);
 
 #ifdef CONFIG_OF
-static const struct of_device_id ov5640_of_match[] = {
-	{ .compatible = "ovti,ov5640",
+static const struct of_device_id ov2640_of_match[] = {
+	{ .compatible = "ovti,ov2640",
 	},
 	{ /* sentinel */ }
 };
 
-MODULE_DEVICE_TABLE(of, ov5640_of_match);
+MODULE_DEVICE_TABLE(of, ov2640_of_match);
 #endif
 
-static const struct i2c_device_id ov5640_id[] = {
-	{"ov5640", 0},
+static const struct i2c_device_id ov2640_id[] = {
+	{"ov2640", 0},
 	{},
 };
 
-MODULE_DEVICE_TABLE(i2c, ov5640_id);
+MODULE_DEVICE_TABLE(i2c, ov2640_id);
 
-static struct i2c_driver ov5640_i2c_driver = {
+static struct i2c_driver ov2640_i2c_driver = {
 	.driver = {
 		  .owner = THIS_MODULE,
-		  .name  = "ov5640",
+		  .name  = "ovti,ov2640",
 #ifdef CONFIG_OF
-		  .of_match_table = of_match_ptr(ov5640_of_match),
+		  .of_match_table = of_match_ptr(ov2640_of_match),
 #endif
 		  },
-	.probe  = ov5640_probe,
-	.remove = ov5640_remove,
-	.id_table = ov5640_id,
+	.probe  = ov2640_probe,
+	.remove = ov2640_remove,
+	.id_table = ov2640_id,
 };
 
 static const struct ov5640_datafmt ov5640_colour_fmts[] = {
@@ -1829,7 +1829,7 @@ static int ov2640initREG(struct i2c_client *pi2c)
  * @param adapter            struct i2c_adapter *
  * @return  Error code indicating success or failure
  */
-static int ov5640_probe(struct i2c_client *client,
+static int ov2640_probe(struct i2c_client *client,
 			const struct i2c_device_id *id)
 {
 	struct pinctrl *pinctrl;
@@ -1837,7 +1837,6 @@ static int ov5640_probe(struct i2c_client *client,
 	int retval;
 	u8 chip_id_high, chip_id_low;
 
-	printk("test ov5640\n");
 	/* ov5640 pinctrl */
 	pinctrl = devm_pinctrl_get_select_default(dev);
 	if (IS_ERR(pinctrl)) {
@@ -1852,7 +1851,7 @@ static int ov5640_probe(struct i2c_client *client,
 		return -ENODEV;
 	}
 	retval = devm_gpio_request_one(dev, pwn_gpio, GPIOF_OUT_INIT_HIGH,
-					"ov5640_pwdn");
+					"ov2640_pwdn");
 	if (retval < 0)
 		return retval;
 
@@ -1863,7 +1862,7 @@ static int ov5640_probe(struct i2c_client *client,
 		return -EINVAL;
 	}
 	retval = devm_gpio_request_one(dev, rst_gpio, GPIOF_OUT_INIT_HIGH,
-					"ov5640_reset");
+					"ov2640_reset");
 	if (retval < 0)
 		return retval;
 
@@ -1956,7 +1955,7 @@ static int ov5640_probe(struct i2c_client *client,
 		dev_err(&client->dev,
 					"%s--Async register failed, ret=%d\n", __func__, retval);
 
-	pr_info("camera ov5640, is found\n");
+	pr_info("camera ov2640, is found\n");
 	return retval;
 }
 
@@ -1966,7 +1965,7 @@ static int ov5640_probe(struct i2c_client *client,
  * @param client            struct i2c_client *
  * @return  Error code indicating success or failure
  */
-static int ov5640_remove(struct i2c_client *client)
+static int ov2640_remove(struct i2c_client *client)
 {
 	struct v4l2_subdev *sd = i2c_get_clientdata(client);
 
@@ -1988,10 +1987,10 @@ static int ov5640_remove(struct i2c_client *client)
 	return 0;
 }
 
-module_i2c_driver(ov5640_i2c_driver);
+module_i2c_driver(ov2640_i2c_driver);
 
 MODULE_AUTHOR("Freescale Semiconductor, Inc.");
-MODULE_DESCRIPTION("OV5640 Camera Driver");
+MODULE_DESCRIPTION("OV2640 Camera Driver");
 MODULE_LICENSE("GPL");
-MODULE_VERSION("1.0");
+MODULE_VERSION("2.0");
 MODULE_ALIAS("CSI");
