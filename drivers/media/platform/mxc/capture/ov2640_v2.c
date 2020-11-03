@@ -804,17 +804,6 @@ static int ov5640_set_register(struct v4l2_subdev *sd,
 }
 #endif
 
-static void ov5640_soft_reset(void)
-{
-	/* sysclk from pad */
-	ov5640_write_reg(0x3103, 0x11);
-
-	/* software reset */
-	ov5640_write_reg(0x3008, 0x82);
-
-	/* delay at least 5ms */
-	msleep(10);
-}
 
 /* set sensor driver capability
  * 0x302c[7:6] - strength
@@ -1146,7 +1135,6 @@ static int ov5640_init_mode(void)
 	struct reg_value *pModeSetting = NULL;
 	int ArySize = 0, retval = 0;
 
-	ov5640_soft_reset();
 
 	pModeSetting = ov5640_global_init_setting;
 	ArySize = ARRAY_SIZE(ov5640_global_init_setting);
